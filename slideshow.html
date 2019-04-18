@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Functional thinking</title>
+		<style>
+			body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+h1, h2, h3 {
+  font-weight: 400;
+  margin-bottom: 0;
+}
+.remark-slide-content h1 { font-size: 3em; }
+.remark-slide-content h2 { font-size: 2em; }
+.remark-slide-content h3 { font-size: 1.6em; }
+.footnote {
+  position: absolute;
+  bottom: 3em;
+}
+li p { line-height: 1.25em; }
+.red { color: #fa0000; }
+.large { font-size: 2em; }
+a, a > code {
+  color: rgb(249, 38, 114);
+  text-decoration: none;
+}
+code {
+  background: none repeat scroll 0 0 #F8F8FF;
+  border: 1px solid #DEDEDE;
+  border-radius: 3px  ;
+  padding: 0 0.2em;
+}
+.remark-code, .remark-inline-code {
+  font-family: "Bitstream Vera Sans Mono", "Courier", monospace;
+}
+.remark-code {
+  font-size: 0.67em;
+}
+.remark-code-line-highlighted     { background-color: #373832; }
+.pull-left {
+  float: left;
+  width: 47%;
+}
+.pull-right {
+  float: right;
+  width: 47%;
+}
+.pull-right ~ p {
+  clear: both;
+}
+#slideshow .slide .content code {
+  font-size: 0.8em;
+}
+#slideshow .slide .content pre code {
+  font-size: 0.9em;
+  padding: 15px;
+}
+.main-title, .title {
+  background: #272822;
+  color: #777872;
+  text-shadow: 0 0 20px #333;
+}
+.title h1, .title h2, .main-title h1, .main-title h2 {
+  color: #f3f3f3;
+  line-height: 0.8em;
+}
+/* Custom */
+.remark-code {
+  display: block;
+  padding: 0.5em;
+}
+
+.remark-slide-number {
+  display: none;
+}
+
+		</style>
+	</head>
+	<body>
+		<textarea id="source">
+class: center, middle, main-title
+
+# Functional thinking
+Got.λ - Gothenburg Functional Programming Meetup
+
+-
+
+A case study involving graphs
+
+-
+
+Johan Lodin, 2018-10-24
+
+github.com/jolod
+
+
+---
+#### Comments
+I have added comments to the oroginal presentation. These are always marked with &quot;Comment:&quot; if inline, or as separate slides (such as this one).
+
+
+---
+## Intro
+A directed graph consists of
+
+
+- a set of vertices
+- a set of pairs of vertices (edges)
+
+Example:
+
+![topo-sort](305px-Directed_acyclic_graph_2.svg.png)
+
+<!--
+          a
+         /|\
+        / | \
+       b  c  d
+      / \ |   \
+     /   \|    \
+    e     f     g
+-->
+
+---
+## Some graph data structures
+```haskell
+newtype SetGraph a = SetGraph
+  { vertices :: Set a
+  , edges :: Set (Tuple a a) }
+```
+```haskell
+newtype MapGraph a = MapGraph (Map a (Set a))
+```
+```haskell
+data Algebraic a
+  = Empty
+  | Vertex a
+  | Overlay (Algebraic a) (Algebraic a)
+  | Connect (Algebraic a) (Algebraic a)
+```
+(Also matrix.)
+
+
+---
+#### Comments
+Will use `MapGraph` for the rest of the slides. Something to be aware of is that the interpretation of `MapGraph $ Map.insert &quot;a&quot; (Set.singleton &quot;b&quot;) Map.empty` contains two vertices and one edge. That is, it is not sufficient to look at `Map.keys` to get all the vertices.
+
+For an explanation of `Algebraic`, look at https://blogs.ncl.ac.uk/andreymokhov/an-algebra-of-graphs/.
+
+
+---
+## Graph operations
+Basic queries:
+
+
+- vertex existence
+- edge existence
+- edges from/to
+
+--
+
+Basic modifications:
+
+
+- add vertex
+- add edge
+- remove edge
+- remove vertex (?)
+
+--
+
+Typical algorithms:
+
+
+- reach from vertex
+- shortest path
+- transpose
+- topological sorting (if acyclic)
+
+--
+
+Time complexity depends on data structure. I needed:
+
+
+- Fast lookup of edges from a vertex (for e.g. reach).
+- Fast reverse edge lookup (for e.g. topological sorting).
+
+
+---
+## DoubleMapGraph
+```haskell
+data DoubleMapGraph a = DoubleMapGraph {graph :: MapGraph a, transposed :: MapGraph a}
+```
+--
+
+```haskell
+empty :: forall a. DoubleMapGraph a
+empty = DoubleMapGraph {graph: MapGraph.empty, transposed: MapGraph.empty}
+```
+--
+
+```haskell
+addVertex :: forall a. Ord a => a -> DoubleMapGraph a -> DoubleMapGraph a
+addVertex vertex (DoubleMapGraph {graph, transposed}) = DoubleMapGraph
+  { graph: MapGraph.addVertex vertex graph
+  , transposed: MapGraph.addVertex vertex transposed }
+```
+--
+
+```haskell
+addEdge :: forall a. Ord a => a -> a -> DoubleMapGraph a -> DoubleMapGraph a
+addEdge from to (DoubleMapGraph {graph, transposed}) = DoubleMapGraph
+  { graph: MapGraph.addEdge from to graph
+  , transposed: MapGraph.addEdge to from transposed }
+```
+--
+
+```haskell
+removeEdge :: forall a. Ord a => a -> a -> DoubleMapGraph a -> DoubleMapGraph a
+removeEdge from to (DoubleMapGraph {graph, transposed}) = DoubleMapGraph
+  { graph: MapGraph.removeEdge from to graph
+  , transposed: MapGraph.removeEdge to from transposed }
+```
+You get the idea.
+
+
+---
+## DoubleMapGraph
+```haskell
+edgesFrom :: forall a. Ord a => a -> DoubleMapGraph a -> Maybe (Set a)
+edgesFrom vertex (DoubleMapGraph {graph}) = MapGraph.edgesFrom vertex graph
+```
+--
+
+```haskell
+edgesTo :: forall a. Ord a => a -> DoubleMapGraph a -> Maybe (Set a)
+edgesTo vertex (DoubleMapGraph {transposed}) = MapGraph.edgesFrom vertex transposed
+```
+--
+
+```haskell
+reachFrom :: forall a. Ord a => a -> DoubleMapGraph a -> Maybe (Set a)
+reachFrom vertex (DoubleMapGraph {graph}) = MapGraph.reachFrom vertex graph
+```
+--
+
+```haskell
+reachTo :: forall a. Ord a => a -> DoubleMapGraph a -> Maybe (Set a)
+reachTo vertex (DoubleMapGraph {transposed}) = MapGraph.reachFrom vertex transposed
+```
+--
+
+Annoying pattern.
+
+Can do better! Suggestions?
+
+
+---
+## Leveraging immutability
+```haskell
+graph (DoubleMapGraph {graph}) = graph
+
+transpose (DoubleMapGraph {graph, transposed}) = DoubleGraph
+  { graph: transposed
+  , transposed: graph }
+```
+Bad idea if not immutable.
+
+--
+
+```haskell
+transposed = transpose >>> graph
+
+edgesFrom vertex = MapGraph.edgesFrom vertex <<< graph
+
+edgesTo vertex = MapGraph.edgesFrom vertex <<< transposed
+
+reachFrom vertex = MapGraph.reachFrom <<< graph
+
+reachTo vertex = MapGraph.reachFrom <<< transposed
+```
+--
+
+Need not be in the `DoubleMapGraph` module!
+
+Compare with mutable OO and encapulation:
+
+
+- Need to delegate every behavior of the underlying graph class.
+ - And guard against leaking a reference or allowing mutation in any way.
+- Or, return a clone.
+
+
+---
+## Generalize over graph data type
+What we have so far:
+
+```haskell
+data DoubleMapGraph a = DoubleMapGraph {graph :: MapGraph a, transposed :: MapGraph a}
+
+empty :: forall a. DoubleMapGraph a
+
+addVertex :: forall a. Ord a => a -> DoubleMapGraph a -> DoubleMapGraph a
+
+addEdge :: forall a. Ord a => a -> a -> DoubleMapGraph a -> DoubleMapGraph a
+
+removeEdge :: forall a. Ord a => a -> a -> DoubleMapGraph a -> DoubleMapGraph a
+```
+Suggestions?
+
+
+---
+#### Comments
+I anticipated the suggestion of a type class, and have a slide for that later, but ultimately I will not use type classes.
+
+
+---
+### Detour: Why not removeVertex?
+Need to loop over all vertices and remove incoming edges as well.
+
+```haskell
+removeAll :: forall a. Ord a => a -> MapGraph a -> MapGraph a
+removeAll vertex (MapGraph m) = MapGraph $
+  map (Set.delete vertex) $ Map.delete vertex m
+```
+But we know which vertices point to it.
+
+This is one of the reasons we want O(1) transpose!
+
+
+---
+#### Comments
+Consider how this works with the type class approach. (It doesn&#39;t work well.)
+
+If we have the transposed graph, we can make `removeAll` much more efficient. We just look up all the vertices that point to the vertex (i.e. a single map lookup in the transposed graph) and then we just iterate over those values and removed the vertex from the sets.
+
+
+---
+## As a type class
+```haskell
+module Graph where
+
+class Graph g a where
+  empty      :: g a
+  addVertex  :: a -> g a -> g a
+  addEdge    :: a -> a -> g a -> g a
+  removeEdge :: a -> a -> g a -> g a
+```
+--
+
+```haskell
+instance mapGraphGraph :: Ord a => Graph MapGraph a where
+  empty = MapGraph.empty
+  addVertex = MapGraph.addVertex
+  addEdge = MapGraph.addEdge
+  removeEdge = MapGraph.removeEdge
+```
+--
+
+```haskell
+module DoubleGraph where
+
+data DoubleGraph g a = DoubleGraph {graph :: g a, transposed :: g a}
+
+empty      :: forall g a. Graph g a => DoubleGraph g a
+addVertex  :: forall g a. Graph g a => a -> DoubleGraph g a -> DoubleGraph g a
+addEdge    :: forall g a. Graph g a => a -> a -> DoubleGraph g a -> DoubleGraph g a
+
+removeEdge :: forall g a. Graph g a => a -> a -> DoubleGraph g a -> DoubleGraph g a
+removeEdge from to (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: Graph.removeEdge from to graph
+  , transposed: Graph.removeEdge to from transposed }
+```
+Observation: all functions only use a single function each from `Graph`.
+
+Ponder `removeAll`.
+
+
+---
+#### Comments
+(You could have added more methods, such as `vertices` and `edgesFrom` etc, but since we will take a different direction I just examplify with the methods above.)
+
+How would we write `removeAll` using a type class for the graph? By doing that, we are not allowing ourselves to exploit the fact that we know the transposed graph. We can only use the methods provided by `Graph`, and the implementation in `Graph` cannot know about our graph in `transposed`.
+
+Next, we will see what happens if you don&#39;t use a type class, and just use plain functions as the tool for abstraction.
+
+(cont.)
+
+
+---
+#### Comments (cont.)
+If we take the observation that we only need one method each from the type class to heart, we&#39;d might rewrite it as
+
+```haskell
+class GraphEmpty g a where empty :: g a
+class GraphAddVertex where addVertex :: a -> g a -> g a
+class GraphAddEdge where addEdge :: a -> a -> g a -> g a
+class GraphRemoveEdge where removeEdge :: a -> a -> g a -> g a
+
+empty      :: forall g a. GraphEmpty g a => DoubleGraph g a
+addVertex  :: forall g a. GraphAddVertex g a => a -> DoubleGraph g a -> DoubleGraph g a
+addEdge    :: forall g a. GraphAddEdge g a => a -> a -> DoubleGraph g a -> DoubleGraph g a
+removeEdge :: forall g a. GraphRemoveEdge g a => a -> a -> DoubleGraph g a -> DoubleGraph g a
+```
+But now, what is the difference between `GraphAddVertex g a =&gt;` and `(a -&gt; g a -&gt; g a) -&gt;`?
+
+This hints to when you want to group several methods into a type class: if the methods are not completely independent and have some constraints. These are often called &quot;laws&quot;. A simple such constraint is for the type class `Ord`. `Ord` requires two methods: `==` (inherited from `Eq`) and `&lt;=`. Now, `a == b` implies `a &lt;= b`. So it makes sense to say that for a certain type we have this set of behaviors that &quot;work together&quot;.
+
+Another example are the famous monad laws, which relate `return` and `&gt;&gt;=`.
+
+
+---
+## Using just functions
+```haskell
+data DoubleGraph g = DoubleGraph {graph :: g, transposed :: g}
+```
+Note: no `a`.
+
+Comment: There&#39;s no need to assume that our graph type has a type parameter. See the last slide for an example of this.
+
+
+---
+## Using just functions
+```haskell
+data DoubleGraph g = DoubleGraph {graph :: g, transposed :: g}
+```
+```haskell
+empty :: forall g. g -> DoubleGraph g
+empty empty' = DoubleGraph
+  { graph: empty'
+  , transposed: empty' }
+```
+Comment: Instead of using `Graph.empty` we pass that empty value for `g` in as an argument.
+
+
+---
+## Using just functions
+```haskell
+data DoubleGraph g = DoubleGraph {graph :: g, transposed :: g}
+```
+```haskell
+empty :: forall g. g -> DoubleGraph g
+empty empty' = DoubleGraph
+  { graph: empty'
+  , transposed: empty' }
+```
+```haskell
+addVertex :: forall g h a. (a -> g -> h) -> a -> DoubleGraph g -> DoubleGraph h
+addVertex addVertex' vertex (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: addVertex' vertex graph
+  , transposed: addVertex' vertex transposed }
+```
+Comment: The same principle is used for `Graph.addVertex`. The only difference is as that the argument is a function, and the return value is a function (remember that the type could have been written as `forall g h a. (a -&gt; g -&gt; h) -&gt; (a -&gt; DoubleGraph g -&gt; DoubleGraph h)`).
+
+Comment: We see that `addVertex` &quot;lifts&quot; a graph operation into a double graph operation.
+
+
+---
+## Using just functions
+```haskell
+data DoubleGraph g = DoubleGraph {graph :: g, transposed :: g}
+```
+```haskell
+empty :: forall g. g -> DoubleGraph g
+empty empty' = DoubleGraph
+  { graph: empty'
+  , transposed: empty' }
+```
+```haskell
+addVertex :: forall g h a. (a -> g -> h) -> a -> DoubleGraph g -> DoubleGraph h
+addVertex addVertex' vertex (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: addVertex' vertex graph
+  , transposed: addVertex' vertex transposed }
+```
+```haskell
+addEdge :: forall g h a. (a -> a -> g -> h) -> a -> a -> DoubleGraph g -> DoubleGraph h
+addEdge addEdge' from to (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: addEdge' from to graph
+  , transposed: addEdge' to from transposed }
+```
+--
+
+```haskell
+removeEdge :: forall g h a. (a -> a -> g -> h) -> a -> a -> DoubleGraph g -> DoubleGraph h
+removeEdge removeEdge' from to (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: removeEdge' from to graph
+  , transposed: removeEdge' to from transposed }
+```
+--
+
+How does `addEdge` and `removeEdge` differ?
+
+Answer: By name only!
+
+
+---
+## Using just functions
+```haskell
+data DoubleGraph g = DoubleGraph {graph :: g, transposed :: g}
+```
+```haskell
+empty :: forall g. g -> DoubleGraph g
+empty empty' = DoubleGraph
+  { graph: empty'
+  , transposed: empty' }
+```
+```haskell
+updateVertex :: forall g h a. (a -> g -> h) -> a -> DoubleGraph g -> DoubleGraph h
+updateVertex updateVertex' vertex (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: updateVertex' vertex graph
+  , transposed: updateVertex' vertex transposed }
+```
+```haskell
+updateEdge :: forall g h a. (a -> a -> g -> h) -> a -> a -> DoubleGraph g -> DoubleGraph h
+updateEdge updateEdge' from to (DoubleGraph {graph, transposed}) = DoubleGraph
+  { graph: updateEdge' from to graph
+  , transposed: updateEdge' to from transposed }
+```
+Rename `addVertex` to `updateVertex` and rename `addEdge`/`removeEdge` to `updateEdge`.
+
+--
+
+
+- Can change type!
+- `updateVertex` too powerful, can break the invariant.
+ - We can remove a key from the map in `MapGraph`, which will remove the key in the transpose as well. The two graphs are now no longer transposes of each other.
+ - Actually a feature?
+
+
+---
+## DoubleMapGraph again
+Reminder:
+
+```haskell
+data DoubleGraph g = DoubleGraph
+  { graph :: g
+  , transposed :: g }
+
+empty :: forall g. g -> DoubleGraph g
+
+updateVertex :: forall g h a. (a -> g -> h) -> a -> DoubleGraph g -> DoubleGraph h
+
+updateEdge :: forall g h a. (a -> a -> g -> h) -> a -> a -> DoubleGraph g -> DoubleGraph h
+```
+--
+
+```haskell
+module DoubleMapGraph where
+
+empty = DoubleGraph.empty MapGraph.empty
+
+addVertex = DoubleGraph.updateVertex MapGraph.addVertex
+
+addEdge = DoubleGraph.updateEdge MapGraph.addEdge
+
+removeEdge = DoubleGraph.updateEdge MapGraph.removeEdge
+```
+That&#39;s it!
+
+--
+
+```haskell
+removeAll :: forall a. Ord a => a -> DoubleGraph (MapGraph a) -> DoubleGraph (MapGraph a)
+removeAll vertex dg =
+  DoubleGraph.updateVertex MapGraph._removeVertex vertex
+    $ reduce (flip removeEdge vertex) dg
+    $ fromMaybe Set.empty (edgesTo vertex dg)
+```
+
+---
+#### Comments (Perhaps the most important slide in the whole deck!)
+Note that I use `MapGraph._removeVertex` because it&#39;s not supposed to be used generally. It&#39;s behavior is &quot;remove outgoing edges and if there are no incoming edges also remove the vertex&quot;. It might be what you want, but it&#39;s at the very least a terrible name. :-) (In fact, it is precisely the function you want for some topological sorting algorithms, since you remove vertices only when there are no incoming edges.)
+
+The `DoubleMapGraph` module defined on the previous slide is completely optional, but for me I mostly used the same underlying graph, and then I could just as well make use of that and utilize the benefits of an efficient `removeAll`.
+
+If you have a `Graph` type class, you can make `DoubleGraph` an instance for all graphs that also have a `Graph` instance:
+
+```haskell
+instance graphDoubleGraph :: Graph g => Graph (DoubleGraph g) where
+  empty = empty Graph.empty
+  addVertex = updateVertex Graph.addVertex
+  addEdge = updateEdge Graph.addEdge
+  removeEdge = updateEdge Graph.removeEdge
+```
+So this is not in opposition of a type class, but we see now little code we need to provide the core functionality if we abstract over functions instead of going directly for a type class, and we see how reusable it is since we can use it to built both a specific type with optimized behavior as well as provide an implementation for a graph type class.
+
+
+---
+## Summary
+Result: a module that
+
+
+- solves one problem,
+- solves only that problem,
+- provides behaviors à la carte
+- with minimal boiler plate.
+
+Conclusions:
+
+
+- Profit from immutability.
+- Only use type classes when needed.
+ - Be wary of &quot;singleton abstractions&quot;.
+- (The best interfaces have a single method (i.e. functions).)
+
+
+---
+#### Comments
+It&#39;s really worth pondering what we actually did here. The `DoubleGraph` module only contains functions for manipulating vertices and edges. It&#39;s not really supposed to be used directly; specifically since updateVertex is a bit too powerful, but that power is utilized to provide more efficient implementations. So I think the module provides functions at exactly the right level. You can make sure that the power of `addVertex` is not abused by providing your own interface as I did in the last implementation of `DoubleMapGraph`. In that way it is akin to an abstract base class, which has access to protected members and behaviors.
+
+We also made use of immutability to only focus the behaviors on only manipulation of vertices and edges, without sacrificing any reusability when it comes to all other behaviors, since we provided `graph` and `transpose`.
+
+
+---
+class: center, middle, main-title
+
+# Generic graph algorithms
+How to not use three different but equivalent graph modules at the same time
+
+
+---
+## Records instead of classes
+PureScript supports row-polymorphic records.
+
+```haskell
+topoSort :: forall graph a f r. Ord a => Foldable f
+  => { removeEdge :: a -> a -> graph -> graph
+     , removeVertex :: a -> graph -> graph
+     , isEmpty :: graph -> Boolean
+     , edgesFrom :: a -> graph -> Set a
+     | r }
+  -> { vertices :: f a
+     , graph :: graph
+     , transposed :: graph }
+  -> Either graph (List a)
+```
+![topo-sort](305px-Directed_acyclic_graph_2.svg.png)
+
+
+---
+#### Comments
+This is just taking the ideas from `DoubleGraph` &quot;to the extreme&quot;. The first argument provides all the graph behaviors the algorithm requires. The second argument takes information about the graph. `vertices :: f a` is a collection of all the starting vertices, `graph :: graph` is the normal graph and `transposed :: graph` is the transposed graph.
+
+Why do I not provide a transpose function? Because that might just be `const transposed` in case I have the transposed graph, if not I just transpose the graph before passing it to `topoSort`. I lose nothing by doing it this way. It&#39;s your responsibility to make sure that `transposed` is indeed the transpose of `graph`. Since you pass `transpose` as an argument you have no guarentee that it&#39;s well behaved. (You could create types to more or less guarentee the `transposed` is actually the transpose, but what&#39;s the benefit, really? You almost have to make an effort to mess up.)
+
+
+---
+## Constructing a subgraph
+```haskell
+subGraph :: forall a f graph. Ord a => Foldable f
+  => (a -> f a -> graph -> graph)
+  -> graph
+  -> (a -> f a)
+  -> List a
+  -> graph
+subGraph addEdges empty adjacent vertices =
+    go {visited: Set.empty, queue: vertices, graph: empty}
+  where
+    go :: {queue :: List a, graph :: graph, visited :: Set a} -> graph
+    go {graph, queue: List.Nil} = graph
+    go {graph, visited, queue: List.Cons vertex queue} =
+      if Set.member vertex visited then
+        go {visited, queue, graph}
+      else
+        let
+          neighbors = adjacent vertex
+        in
+          go
+            { visited: Set.insert vertex visited
+            , queue: List.fromFoldable neighbors <> queue
+            , graph: addEdges vertex neighbors graph }
+```
+
+- `adjacent` can trim a graph on the fly, no need to create a new graph.
+- `graph` need not be a graph!
+
+
+---
+## Graph reach
+```haskell
+reach :: forall a f. Ord a => Foldable f
+  => (a -> f a)
+  -> a
+  -> Set a
+reach adjacent start =
+    subGraph addEdges Set.empty adjacent (List.fromFoldable (adjacent start))
+  where
+    addEdges vertex _ vertices = Set.insert vertex vertices
+```
+Compare with a type class version of `subGraph`.
+
+
+---
+## Incremental subGraph
+```haskell
+subGraph' :: forall a f graph. Ord a => Foldable f
+  => { addEdges :: a -> f a -> graph -> graph
+     , member :: a -> graph -> Boolean
+     , empty :: graph }
+  -> (a -> f a)
+  -> List a
+  -> graph
+subGraph' {addEdges, member, empty} adjacent vertices =
+    go {graph: empty, queue: vertices}
+  where
+    go :: {queue :: List a, graph :: graph} -> graph
+    go {graph, queue: List.Nil} = graph
+    go {graph, queue: List.Cons vertex queue} =
+      if member vertex graph then                          -- CHANGED
+        go {queue, graph}
+      else
+        let
+          neighbors = adjacent vertex
+        in
+          go
+            { queue: List.fromFoldable neighbors <> queue
+            , graph: addEdges vertex neighbors graph }
+```
+
+- No `visited`; instead sees if the vertex is a member of the graph.
+- `empty` need not be empty.
+ - Can incrementally add to a subgraph without doubled work.
+ - Comment: consider first taking the subgraph starting at vertex 5 in the example above, and then take the subgraph starting at vertex 7 and then merge them. Vertices 11, 2, 9, and 10 will be doubly visited.
+
+What if the graph implementation is slow for member querying?
+
+
+---
+## Reintroducing the set of visited vertices
+```haskell
+subGraph addEdges' empty' adjacent vertices =
+    _.graph $ subGraph' {addEdges, member, empty} adjacent vertices
+  where
+    empty = {visited: Set.empty, graph: empty'}
+    addEdges vertex neighbors {visited, graph} =
+      { visited: Set.insert vertex visited
+      , graph: addEdges' vertex neighbors graph }
+    member vertex {visited} = Set.member vertex visited
+```
+Another trick, if you wanted a topological sort afterwards, is to also construct the transpose, rename `visisted` to `vertices`, and remove `_.graph $` and then pass the return value directly to `topoSort`.
+
+
+---
+## IO double ''graph''
+```haskell
+type IO a = Eff (console :: CONSOLE) a
+
+addVertex :: forall a. Show a => a -> IO Unit -> IO Unit
+addVertex a eff = do
+  eff
+  log $ "Added vertex: " <> show a
+
+addEdge :: forall a. Show a => a -> a -> IO Unit -> IO Unit
+addEdge a b eff = do
+  eff
+  log $ "Added edge: " <> show a <> " -> " <> show b
+
+main = do
+  let empty' = DoubleGraph.empty $ pure unit
+  let addVertex' = DoubleGraph.updateVertex addVertex
+  let addEdge' = DoubleGraph.updateEdge addEdge
+  let dg =
+        empty'
+          # addEdge' 1 2
+          # addVertex' 3
+          # addEdge' 1 3
+  log "Graph:"
+  DoubleGraph.graph dg
+  log "Transposed:"
+  DoubleGraph.graph $ DoubleGraph.transpose dg
+```
+```
+Graph:
+Added edge: 1 -> 2
+Added vertex: 3
+Added edge: 1 -> 3
+Transposed:
+Added edge: 2 -> 1
+Added vertex: 3
+Added edge: 3 -> 1
+```
+
+---
+#### Comments
+The point of the previous slide is to show that you do not need to think of a graph data type in the usual sense, and this is also an example of why you do not need `g a` and only `g` in the definition of `DoubleGraph`.
+
+One can also ponder what would be required to do this if `DoubleGraph` was a type class. You would have to provide a `Graph` instance for `IO`, but probably you would create a newtype instead. Also notice that this is a write-only double graph.
+
+By only using functions we get a lot of flexibility! Who could have guessed that functions were so useful! ;-)
+
+
+---
+class: center, middle, main-title
+
+# THE END
+Thank you!
+
+github.com/jolod
+
+
+		</textarea>
+		<script src="https://gnab.github.io/remark/downloads/remark-latest.min.js"></script>
+		<script>
+			var slideshow = remark.create();
+		</script>
+		<script></script>
+	</body>
+</html>
