@@ -16,7 +16,9 @@ github.com/jolod
 
 #### Comments
 
-I have added comments to the oroginal presentation. These are always marked with "Comment:" if inline, or as separate slides (such as this one).
+I have added comments to the original presentation. These are always marked with "Comment:" if inline, or as separate slides (such as this one).
+
+The code snippets are written in [PureScript](http://www.purescript.org/) which is deceptively similar to Haskell for records. The key differences for this presentation is that you need to spell out type variables using `forall` in PureScript, and that records look very similar but work slightly differently.
 
 ## Intro
 
