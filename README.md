@@ -2,7 +2,9 @@
 
 By Johan Lodin, presented 2018-10-24 at [Got.λ](https://www.meetup.com/got-lambda/).
 
-## Building the presentation
+The slides are written in Markdown and are directly readable without any processing: [slides.md](slides.md).
+
+## Building the slideshow
 
 To produce `slideshow.html`, run
 
